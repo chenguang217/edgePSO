@@ -30,18 +30,18 @@ def sort_key(old_dict, reverse=False):
 class PSO:
     def __init__(self, baseStationSet, NGEN, popSize, r1, r2):
         # 初始化
-        self.NGEN = NGEN                        # 迭代的代数
-        self.popSize = popSize                  # 种群大小
-        self.varNum = len(baseStationSet)       # 变量个数
-        self.popM = []                          # 基站分配矩阵M
-        self.popX = []                          # 粒子位置X
-        self.popV = []                          # 粒子速度V
-        self.p_best = []                        # 局部最优
-        self.r = [r1, r2]                       # 覆盖范围设置
-        self.baseStationSet = baseStationSet    # 基站集
-        self.trafficSum = 0                     # 流量总和，q计算中需要
-        self.fits = []                          # 适应度
-        self.pfits = []                         # 局部最优适应度
+        self.NGEN = NGEN                            # 迭代的代数
+        self.popSize = popSize                      # 种群大小
+        self.varNum = len(baseStationSet)           # 变量个数
+        self.popM = []                              # 基站分配矩阵M
+        self.popX = []                              # 粒子位置X
+        self.popV = []                              # 粒子速度V
+        self.p_best = []                            # 局部最优
+        self.r = [r1, r2]                           # 覆盖范围设置
+        self.baseStationSet = baseStationSet        # 基站集
+        self.trafficSum = 0                         # 流量总和，q计算中需要
+        self.fits = []                              # 适应度
+        self.pfits = []                             # 局部最优适应度
         temp = -1
         # ---------------计算流量总和---------------
         for base in baseStationSet:
@@ -55,7 +55,7 @@ class PSO:
                 # ---------------统计未分配基站---------------
                 unAssign = []
                 for base in range(len(M)):
-                    if 1 not in M[base]:
+                    if 1 not in M[base] and 2 not in M[base]:
                         unAssign.append(base)
                     # ---------------对高可用节点进行统计---------------
                     elif baseStationSet[base].users >= userLimit:
@@ -79,6 +79,9 @@ class PSO:
                                 q = r1 / baseStationSet[k].distanceCal(baseStationSet[i]) + baseStationSet[i].traffic / self.trafficSum
                             queue[q] = i
                     # ---------------排序q队列并进行分配操作---------------
+                    if len(queue) < 10:
+                        X[k] = 1
+                        M[k][k] = 1
                     queue = sort_key(queue, True)
                     traffic = 0
                     count = 0
@@ -95,7 +98,6 @@ class PSO:
                                 allocation = 1
                                 X[k] = 1
                                 M[k][k] = 1
-                            print(allocation)
                             traffic = 0
                             break
                     # ---------------实际分配过程---------------
@@ -206,7 +208,7 @@ class PSO:
                     if X[j] == 1 and Vnew[j] == 2:
                         X[j] = 2
                     else:
-                        X[j] = abs(x[j] - Vnew[j])
+                        X[j] = int(abs(X[j] - Vnew[j]))
             # ---------------分配未分配的基站---------------
             for j in range(self.varNum):
                 count = 0
@@ -355,7 +357,7 @@ if __name__ == '__main__':
             x = int((int(block) - 1) / 120) + 0.5
             y = ((int(block) - 1) % 120) + 0.5
             # users = tmp[2]
-            users = 50
+            users = 38
             baseStationSet.append(baseStation(x, y, traffic, users))
     pso = PSO(baseStationSet, NGEN, popSize, r1, r2)
-    # pso.main()
+    pso.main()
