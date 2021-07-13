@@ -9,6 +9,7 @@ import numpy as np
 np.set_printoptions(threshold=np.inf)
 wMax = [440000000, 2200000000]
 totalNum = 5951
+userLimit = 39
 
 def randomIntList(start, stop, length):
     start, stop = (int(start), int(stop)) if start <= stop else (int(stop), int(start))
@@ -32,40 +33,59 @@ class PSO:
         self.NGEN = NGEN                        # 迭代的代数
         self.popSize = popSize                  # 种群大小
         self.varNum = len(baseStationSet)       # 变量个数
-        self.popM = []
-        self.popX = []
-        self.popV = []
-        self.p_best = []
-        self.r = [r1, r2]
-        self.baseStationSet = baseStationSet
-        self.trafficSum = 0
-        self.fits = []
-        self.pfits = []
+        self.popM = []                          # 基站分配矩阵M
+        self.popX = []                          # 粒子位置X
+        self.popV = []                          # 粒子速度V
+        self.p_best = []                        # 局部最优
+        self.r = [r1, r2]                       # 覆盖范围设置
+        self.baseStationSet = baseStationSet    # 基站集
+        self.trafficSum = 0                     # 流量总和，q计算中需要
+        self.fits = []                          # 适应度
+        self.pfits = []                         # 局部最优适应度
         temp = -1
+        # ---------------计算流量总和---------------
         for base in baseStationSet:
             self.trafficSum += base.traffic
 
+        # ---------------开始生成粒子群---------------
         for a in range(popSize):
             M = np.zeros((self.varNum, self.varNum))
             X = np.zeros(self.varNum)
             while True:
+                # ---------------统计未分配基站---------------
                 unAssign = []
                 for base in range(len(M)):
                     if 1 not in M[base]:
                         unAssign.append(base)
+                    # ---------------对高可用节点进行统计---------------
+                    elif baseStationSet[base].users >= userLimit:
+                        count = 0
+                        for i in range(len(M[base])):
+                            if M[base][i] != 0:
+                                count += 1
+                        if count < 2 :
+                            unAssign.append(base)
+
                 if len(unAssign) != 0:
+                    # ---------------随机选取位置部署边缘服务器---------------
                     k = random.choice(unAssign)
                     queue = {}
                     for i in range(self.varNum):
                         if i != k and i in unAssign:
-                            q = r1 / baseStationSet[k].distanceCal(baseStationSet[i]) + baseStationSet[i].traffic / self.trafficSum
+                            # ---------------对高可用节点延迟惩罚---------------
+                            if baseStationSet[i].users >= userLimit:
+                                q = r1 / (baseStationSet[k].distanceCal(baseStationSet[i]) + self.r[0] * 0.3) + baseStationSet[i].traffic / self.trafficSum
+                            else:
+                                q = r1 / baseStationSet[k].distanceCal(baseStationSet[i]) + baseStationSet[i].traffic / self.trafficSum
                             queue[q] = i
+                    # ---------------排序q队列并进行分配操作---------------
                     queue = sort_key(queue, True)
                     traffic = 0
                     count = 0
                     for q, i in queue.items():
                         traffic += baseStationSet[i].traffic
                         count += 1
+                        # -------------前10个节点超过4G上限则部署5G-------------
                         if count == 10:
                             if traffic > wMax[0]:
                                 allocation = 2
@@ -78,11 +98,13 @@ class PSO:
                             print(allocation)
                             traffic = 0
                             break
+                    # ---------------实际分配过程---------------
                     for q, i in queue.items():
                         if baseStationSet[k].distanceCal(baseStationSet[i]) < self.r[allocation - 1] and baseStationSet[i].traffic + traffic < wMax[allocation - 1]:
                             M[i][k] = allocation
                             traffic += baseStationSet[i].traffic
                 else:
+                    # ------------更新粒子状态并计算全局最优及局部最优------------
                     self.popM.append(M)
                     self.popX.append(X)
                     self.popV.append(randomIntList(0, 2, self.varNum))
@@ -101,20 +123,34 @@ class PSO:
         PowerSum = 0
         delay = 0
         for i in range(len(X)):
+            # ---------------统计4G---------------
             if X[i] == 1:
                 count = 0
                 traffic = 0
                 for j in range(len(X)):
-                    if M[j][i] == 1:
-                        traffic += self.baseStationSet[j].traffic
-                        delay += self.baseStationSet[j].distanceCal(self.baseStationSet[j])
+                    # ---------------判断是否为高可用---------------
+                    if self.baseStationSet[j].users < userLimit:
+                        if M[j][i] == 1:
+                            traffic += self.baseStationSet[j].traffic
+                            delay += self.baseStationSet[j].distanceCal(self.baseStationSet[i])
+                    else:
+                        if M[j][i] == 1:
+                            traffic += self.baseStationSet[j].traffic
+                            delay += self.baseStationSet[j].distanceCal(self.baseStationSet[i]) + self.r[0] * 0.3
                 PowerSum += traffic / wMax[0] * 520 + 780
+            # ---------------统计5G---------------
             elif X[i] == 2:
                 traffic = 0
                 for j in range(len(X)):
-                    if M[j][i] == 2:
-                        traffic += self.baseStationSet[j].traffic
-                        delay += self.baseStationSet[j].distanceCal(self.baseStationSet[j])
+                    # ---------------判断是否为高可用---------------
+                    if self.baseStationSet[j].users < userLimit:
+                        if M[j][i] == 2:
+                            traffic += self.baseStationSet[j].traffic
+                            delay += self.baseStationSet[j].distanceCal(self.baseStationSet[i])
+                    else:
+                        if M[j][i] == 2:
+                            traffic += self.baseStationSet[j].traffic
+                            delay += self.baseStationSet[j].distanceCal(self.baseStationSet[i]) + self.r[0] * 0.3
                 PowerSum += traffic / wMax[1] * 1400 + 2100
         delay = delay / totalNum
         totalCost = 0.0005 * PowerSum + 2 * delay
@@ -123,7 +159,7 @@ class PSO:
 
     def update_operator(self):
         for i in range(self.popSize):
-            # 计算速度
+            # ---------------计算速度---------------
             p1 = self.fits[i] / (self.fits[i] + self.pfits[i] + self.gfit)
             p2 = self.pfits[i] / (self.fits[i] + self.pfits[i] + self.gfit)
             # p3 = self.gfit / (self.fits[i] + self.pfits[i] + self.gfit)
@@ -142,42 +178,95 @@ class PSO:
             self.popV[i] = Vnew
             X = self.popX[i]
             M = self.popM[i]
-            # print(Vnew)
-            # 应用速度，并去除非法分配
+            # ---------------应用速度，并去除非法分配---------------
             for j in range(self.varNum):
-                if Vnew[j] == 1:
-                    if X[j] == 1:
+                if Vnew[j] == 1 or Vnew == 2:
+                    if X[j] == 1 and Vnew == 1:
                         for k in range(self.varNum):
                             M[k][j] = 0
-                    else:
+                    elif X[j] == 0 and Vnew == 1:
                         for k in range(self.varNum):
                             M[j][k] = 0
                         M[j][j] = 1
-                    X[j] = int(X[j]) ^ 1
-            # 分配未分配的基站
+                    elif X[j] == 2 and Vnew == 2:
+                        for k in range(self.varNum):
+                            M[k][j] = 0
+                    elif X[j] == 2 and Vnew == 1:
+                        for k in range(self.varNum):
+                            M[k][j] = 0
+                        X[j][j] = 1
+                    elif X[j] == 1 and Vnew == 2:
+                        for k in range(self.varNum):
+                            M[k][j] = 0
+                        X[j][j] = 2
+                    elif X[j] == 0 and Vnew == 1:
+                        for k in range(self.varNum):
+                            M[j][k] = 0
+                        M[j][j] = 2
+                    if X[j] == 1 and Vnew[j] == 2:
+                        X[j] = 2
+                    else:
+                        X[j] = abs(x[j] - Vnew[j])
+            # ---------------分配未分配的基站---------------
             for j in range(self.varNum):
-                if 1 not in M[j]:
+                count = 0
+                for k in range(self.varNum):
+                    if M[j][k] == 1 or M[j][k] == 2:
+                        count += 1
+                if count < 1 and self.baseStationSet[j].users < userLimit:
+                    maxProfit = -1
+                    maxChoice = -1
                     for k in range(self.varNum):
-                        if X[k] == 1:
-                            if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) < self.r:
+                        if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) < self.r[X[k] - 1]:
+                            traffic = self.baseStationSet[j].traffic
+                            for l in range(self.varNum):
+                                if M[l][k] == 1:
+                                    traffic += self.baseStationSet[l].traffic
+                            if traffic <= wMax[X[k] - 1]:
+                                old = self.fitness(X, M)
+                                Mtmp = M[:]
+                                Mtmp[j][k] = 1
+                                new = self.fitness(X, Mtmp)
+                                if (new - old) > maxProfit:
+                                    maxProfit = new - old
+                                    maxChoice = k
+                    if maxChoice != -1:
+                        M[j][maxChoice] = X[maxChoice]
+                    else:
+                        if self.baseStationSet[j].traffic > 9765625:
+                            M[j][j] = 2
+                            X[j] = 2
+                        else:
+                            M[j][j] = 1
+                            X[j] = 1
+                elif count < 2 and self.baseStationSet[j].users >= userLimit:
+                    for m in range(2):
+                        maxProfit = -1
+                        maxChoice = -1
+                        for k in range(self.varNum):
+                            if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) < self.r[X[k] - 1]:
                                 traffic = self.baseStationSet[j].traffic
                                 for l in range(self.varNum):
                                     if M[l][k] == 1:
                                         traffic += self.baseStationSet[l].traffic
-                                if traffic <= wMax:
-                                    M[j][k] = 1
-                                    break
-                    else:
-                        M[j][j] = 1
-                        X[j] = 1
-            for j in range(self.varNum):
-                if np.count_nonzero(M[j] == 1) != 1:
-                    print(j)
-                    print('base error')
-                if X[j] == 1 and M[j][j] != 1:
-                    print(j)
-                    print('edge error')
-            #更新lbest gbest
+                                if traffic <= wMax[X[k] - 1]:
+                                    old = self.fitness(X, M)
+                                    Mtmp = M[:]
+                                    Mtmp[j][k] = 1
+                                    new = self.fitness(X, Mtmp)
+                                    if (new - old) > maxProfit:
+                                        maxProfit = new - old
+                                        maxChoice = k
+                        if maxChoice != -1:
+                            M[j][maxChoice] = X[maxChoice]
+                        else:
+                            if self.baseStationSet[j].traffic > 9765625:
+                                M[j][j] = 2
+                                X[j] = 2
+                            else:
+                                M[j][j] = 1
+                                X[j] = 1
+            # ---------------更新lbest gbest---------------
             self.popX[i] = X
             self.popM[i] = M
             fit = self.fitness(X, M)
@@ -212,9 +301,10 @@ class PSO:
         plt.show()
 
 class baseStation:
-    def __init__(self, x, y, traffic):
+    def __init__(self, x, y, traffic, users):
         self.x = x
         self.y = y
+        self.users = users
         if traffic == 0:
             self.traffic = 5 ** 5.0175
         elif traffic == 1:
@@ -264,6 +354,8 @@ if __name__ == '__main__':
             traffic = int(tmp[1])
             x = int((int(block) - 1) / 120) + 0.5
             y = ((int(block) - 1) % 120) + 0.5
-            baseStationSet.append(baseStation(x, y, traffic))
+            # users = tmp[2]
+            users = 50
+            baseStationSet.append(baseStation(x, y, traffic, users))
     pso = PSO(baseStationSet, NGEN, popSize, r1, r2)
     # pso.main()
