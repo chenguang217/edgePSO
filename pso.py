@@ -1,10 +1,11 @@
 import collections
 import math
 import random
+import time
+from copy import deepcopy
 
 import matplotlib.pyplot as plt
 import numpy as np
-
 
 np.set_printoptions(threshold=np.inf)
 wMax = 440000000
@@ -62,33 +63,39 @@ class PSO:
                             q = r / baseStationSet[k].distanceCal(baseStationSet[i]) + baseStationSet[i].traffic / self.trafficSum
                             queue[q] = i
                     queue = sort_key(queue, True)
+                    traffic = baseStationSet[k].traffic
                     for q, i in queue.items():
-                        if baseStationSet[k].distanceCal(baseStationSet[i]) < r and baseStationSet[i].traffic < wMax:
-                            M[i][k] = 1
+                        if baseStationSet[k].distanceCal(baseStationSet[i]) < r:
+                            traffic += baseStationSet[i].traffic
+                            if traffic <= wMax:
+                                M[i][k] = 1
                 else:
                     self.popM.append(M)
                     self.popX.append(X)
                     self.popV.append(randomIntList(0, 1, self.varNum))
-                    self.p_best.append(X)
+                    self.p_best.append(deepcopy(X))
                     fit = self.fitness(X, M)
+                    print(fit)
                     self.fits.append(fit)
                     self.pfits.append(fit)
-                    print(fit)
                     if fit > temp:
-                        self.g_best = X
+                        self.g_best = deepcopy(X)
                         self.gfit = fit
                         temp = fit
                     break
 
     def fitness(self, X, M):
         PowerSum = 0
+        count = 0
         for i in range(len(X)):
             if X[i] == 1:
+                count += 1
                 traffic = 0
                 for j in range(len(X)):
                     if M[j][i] == 1:
                         traffic += self.baseStationSet[j].traffic
                 PowerSum += traffic / wMax * 198 + 297
+        # print('result', count)
         return 1 / PowerSum
 
     def update_operator(self):
@@ -97,8 +104,12 @@ class PSO:
             p1 = self.fits[i] / (self.fits[i] + self.pfits[i] + self.gfit)
             p2 = self.pfits[i] / (self.fits[i] + self.pfits[i] + self.gfit)
             # p3 = self.gfit / (self.fits[i] + self.pfits[i] + self.gfit)
+            # print(p1,p2,p3)
             tmp1 = [b for b in self.popV[i]]
             tmp2 = [(int(self.popX[i][j]) ^ int(self.p_best[i][j])) for j in range(self.varNum)]
+            # for j in range(self.varNum):
+            #     print(self.popX[i][j], self.p_best[i][j])
+            #     print(int(self.popX[i][j]) ^ int(self.p_best[i][j]))
             tmp3 = [(int(self.popX[i][j]) ^ int(self.g_best[j])) for j in range(self.varNum)]
             Vnew = [0] * self.varNum
             for j in range(self.varNum):
@@ -124,6 +135,7 @@ class PSO:
                             M[j][k] = 0
                         M[j][j] = 1
                     X[j] = int(X[j]) ^ 1
+            # print(X)
             # 分配未分配的基站
             for j in range(self.varNum):
                 if 1 not in M[j]:
@@ -147,18 +159,32 @@ class PSO:
                 if X[j] == 1 and M[j][j] != 1:
                     print(j)
                     print('edge error')
-            #更新lbest gbest
+            # 更新lbest gbest
             self.popX[i] = X
             self.popM[i] = M
             fit = self.fitness(X, M)
             self.fits[i] = fit
             print(fit)
+            # print(self.popX[i])
+            # self.xDistance(self.g_best, X)
             if fit > self.pfits[i]:
-                self.p_best[i] = X
+                self.p_best[i] = deepcopy(X)
                 self.pfits[i] = fit
+                print('update')
             if fit > self.gfit:
-                self.g_best = X
+                self.g_best = deepcopy(X)
                 self.gfit = fit
+
+    def xDistance(self, X1, X2):
+        distance = [0] * self.varNum
+        count = 0
+        for i in range(self.varNum):
+            if X1[i] != X2[i]:
+                count += 1
+                distance[i] = 1
+            else:
+                print(X1[i], X2[i])
+        print(count)
 
     def main(self):
         popobj = []
@@ -172,7 +198,7 @@ class PSO:
             # print('最好的位置：{}'.format(self.ng_best))
             print('最大的函数值：{}'.format(self.ng_best))
         print("---- End of (successful) Searching ----")
- 
+
         plt.figure()
         plt.title("Figure1")
         plt.xlabel("iterators", size=14)
@@ -210,14 +236,6 @@ class baseStation:
         return distance
 
 if __name__ == '__main__':
-    # NGEN = 100
-    # popsize = 100
-    # low = [1, 1, 1, 1]
-    # up = [30, 30, 30, 30]
-    # parameters = [NGEN, popsize, low, up]
-    # pso = PSO(parameters)
-    # pso.main()
-
     r = 5                                                       # 单位为100m
     totalNum = 5951
     popSize = 2

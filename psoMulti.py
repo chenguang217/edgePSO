@@ -1,6 +1,7 @@
 import collections
 import math
 import random
+from copy import deepcopy
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -110,13 +111,13 @@ class PSO:
                     self.popM.append(M)
                     self.popX.append(X)
                     self.popV.append(randomIntList(0, 2, self.varNum))
-                    self.p_best.append(X)
+                    self.p_best.append(deepcopy(X))
                     fit = self.fitness(X, M)
                     self.fits.append(fit)
                     self.pfits.append(fit)
                     print(fit)
                     if fit > temp:
-                        self.g_best = X
+                        self.g_best = deepcopy(X)
                         self.gfit = fit
                         temp = fit
                     break
@@ -275,10 +276,10 @@ class PSO:
             self.fits[i] = fit
             print(fit)
             if fit > self.pfits[i]:
-                self.p_best[i] = X
+                self.p_best[i] = deepcopy(X)
                 self.pfits[i] = fit
             if fit > self.gfit:
-                self.g_best = X
+                self.g_best = deepcopy(X)
                 self.gfit = fit
 
     def main(self):
