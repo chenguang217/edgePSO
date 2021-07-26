@@ -3,7 +3,7 @@ Every seven 5G small cells are covered by one LTE macrocell.
 
 4G traffic: 880000000 * 0.5
 4G coverage: 500m(按比例对5G范围转换)
-4G power: 1300W 单系统
+4G power: 2000W 单系统
 
 
 BBU5900  AAU5639

@@ -11,6 +11,7 @@ np.set_printoptions(threshold=np.inf)
 wMax = [440000000, 2200000000]
 totalNum = 5951
 userLimit = 39
+largeTraffic = 9765625
 
 def randomIntList(start, stop, length):
     start, stop = (int(start), int(stop)) if start <= stop else (int(stop), int(start))
@@ -52,9 +53,11 @@ class PSO:
         for a in range(popSize):
             M = np.zeros((self.varNum, self.varNum))
             X = np.zeros(self.varNum)
+            oldLength = 0
             while True:
                 # ---------------统计未分配基站---------------
                 unAssign = []
+                
                 for base in range(len(M)):
                     if 1 not in M[base] and 2 not in M[base]:
                         unAssign.append(base)
@@ -66,8 +69,131 @@ class PSO:
                                 count += 1
                         if count < 2 :
                             unAssign.append(base)
-
-                if len(unAssign) != 0:
+                            # print(base, M[base])
+                if oldLength == len(unAssign):
+                    print('length not change')
+                oldLength = len(unAssign)
+                if 0 < len(unAssign) <= 10:
+                    print(len(unAssign))
+                    tmp = []
+                    flag = False
+                    for base in unAssign:
+                        if M[base][base] != 0:
+                            print(base, '已经是边节点')
+                            for i in range(self.varNum):
+                                if i == base:
+                                    continue
+                                if M[i][i] == 1:
+                                    if baseStationSet[base].users >= userLimit:
+                                        if baseStationSet[base].distanceCal(baseStationSet[i]) + self.r[0] * 0.3 < self.r[0]:
+                                            traffic = self.baseStationSet[i].traffic
+                                            for j in range(self.varNum):
+                                                if M[j][i] == 1:
+                                                    traffic += self.baseStationSet[j].traffic
+                                            if (traffic + self.baseStationSet[base].traffic < wMax[0]):
+                                                M[base][i] = 1
+                                                print(i, '可以分配')
+                                                break
+                                    else:
+                                        if baseStationSet[base].distanceCal(baseStationSet[i]) < self.r[0]:
+                                            traffic = self.baseStationSet[i].traffic
+                                            for j in range(self.varNum):
+                                                if M[j][i] == 1:
+                                                    traffic += self.baseStationSet[j].traffic
+                                            if (traffic + self.baseStationSet[base].traffic < wMax[0]):
+                                                M[base][i] = 1
+                                                print(i, '可以分配')
+                                                break
+                                if M[i][i] == 2:
+                                    if baseStationSet[base].users >= userLimit:
+                                        if baseStationSet[base].distanceCal(baseStationSet[i]) + self.r[1] * 0.3 < self.r[1]:
+                                            traffic = self.baseStationSet[i].traffic
+                                            for j in range(self.varNum):
+                                                if M[j][i] == 1:
+                                                    traffic += self.baseStationSet[j].traffic
+                                            if (traffic + self.baseStationSet[base].traffic < wMax[1]):
+                                                M[base][i] = 2
+                                                print(i, '可以分配')
+                                                break
+                                    else:
+                                        if baseStationSet[base].users >= userLimit:
+                                            if baseStationSet[base].distanceCal(baseStationSet[i]) < self.r[1]:
+                                                traffic = self.baseStationSet[i].traffic
+                                                for j in range(self.varNum):
+                                                    if M[j][i] == 1:
+                                                        traffic += self.baseStationSet[j].traffic
+                                                if (traffic + self.baseStationSet[base].traffic < wMax[1]):
+                                                    M[base][i] = 2
+                                                    print(i, '可以分配')
+                                                    break
+                            else:
+                                for i in unAssign:
+                                    if i == base:
+                                        continue
+                                    if baseStationSet[base].distanceCal(baseStationSet[i]) + self.r[0] * 0.3 < self.r[0]:
+                                        print(i, '可以分配新的')
+                                        M[base][i] = 1
+                                        M[i][i] = 1
+                                        if np.count_nonzero(M[i] == 1) + np.count_nonzero(M[i] == 2) == 2 and baseStationSet[i].users > userLimit:
+                                            try:
+                                                tmp.remove(i)
+                                            except:
+                                                pass
+                                        elif np.count_nonzero(M[i] == 1) + np.count_nonzero(M[i] == 2) == 1 and baseStationSet[i].users <= userLimit:
+                                            try:
+                                                tmp.remove(i)
+                                            except:
+                                                pass
+                                        break
+                                else:
+                                    M[base] = np.zeros(self.varNum)
+                                    X[base] = 0
+                                    tmp.append(base)
+                                    print('wrong')
+                                    flag = True
+                        elif 1 not in M[base] and 2 not in M[base]:
+                            tmp.append(base)
+                            print(base, '完全未分配')
+                            M[base][base] = 1
+                        else:
+                            tmp.append(base)
+                            print(base, '不是边节点')
+                            M[base][base] = 1
+                    if len(tmp) == 0:
+                        continue
+                    if len(tmp) == 1 and flag:
+                        # ---------------剩一个，无法完成---------------
+                        M = np.zeros((self.varNum, self.varNum))
+                        X = np.zeros(self.varNum)
+                        continue
+                    k = random.choice(tmp)
+                    queue = {}
+                    for i in tmp:
+                        if i != k:
+                            # ---------------对高可用节点延迟惩罚---------------
+                            if baseStationSet[i].users >= userLimit:
+                                q = r1 / (baseStationSet[k].distanceCal(baseStationSet[i]) + self.r[0] * 0.3) + baseStationSet[i].traffic / self.trafficSum
+                            else:
+                                q = r1 / baseStationSet[k].distanceCal(baseStationSet[i]) + baseStationSet[i].traffic / self.trafficSum
+                            queue[q] = i
+                    queue = sort_key(queue, True)
+                    traffic = 0
+                    X[k] = 1
+                    M[k][k] = 1
+                    for q, i in queue.items():
+                        if baseStationSet[i].users < userLimit:
+                            if baseStationSet[k].distanceCal(baseStationSet[i]) < self.r[allocation - 1] and baseStationSet[i].traffic + traffic < wMax[allocation - 1]:
+                                M[i][k] = 1
+                                traffic += baseStationSet[i].traffic
+                        else:
+                            if baseStationSet[k].distanceCal(baseStationSet[i]) + self.r[allocation - 1] * 0.3 < self.r[allocation - 1] and baseStationSet[i].traffic + traffic < wMax[allocation - 1]:
+                                M[i][k] = 1
+                                traffic += baseStationSet[i].traffic
+                    # for base in unAssign:
+                    #     print(M[base])
+                    # exit()
+                elif len(unAssign) != 0:
+                    print(len(unAssign))
                     # ---------------随机选取位置部署边缘服务器---------------
                     k = random.choice(unAssign)
                     queue = {}
@@ -80,9 +206,6 @@ class PSO:
                                 q = r1 / baseStationSet[k].distanceCal(baseStationSet[i]) + baseStationSet[i].traffic / self.trafficSum
                             queue[q] = i
                     # ---------------排序q队列并进行分配操作---------------
-                    if len(queue) < 10:
-                        X[k] = 1
-                        M[k][k] = 1
                     queue = sort_key(queue, True)
                     traffic = 0
                     count = 0
@@ -99,13 +222,19 @@ class PSO:
                                 allocation = 1
                                 X[k] = 1
                                 M[k][k] = 1
-                            traffic = 0
                             break
+                    traffic = 0
                     # ---------------实际分配过程---------------
                     for q, i in queue.items():
-                        if baseStationSet[k].distanceCal(baseStationSet[i]) < self.r[allocation - 1] and baseStationSet[i].traffic + traffic < wMax[allocation - 1]:
-                            M[i][k] = allocation
-                            traffic += baseStationSet[i].traffic
+                        if baseStationSet[i].users < userLimit:
+                            if baseStationSet[k].distanceCal(baseStationSet[i]) < self.r[allocation - 1] and baseStationSet[i].traffic + traffic < wMax[allocation - 1]:
+                                M[i][k] = allocation
+                                traffic += baseStationSet[i].traffic
+                        else:
+                            if baseStationSet[k].distanceCal(baseStationSet[i]) + self.r[allocation - 1] * 0.3 < self.r[allocation - 1] and baseStationSet[i].traffic + traffic < wMax[allocation - 1]:
+                                M[i][k] = allocation
+                                traffic += baseStationSet[i].traffic
+                        
                 else:
                     # ------------更新粒子状态并计算全局最优及局部最优------------
                     self.popM.append(M)
@@ -227,7 +356,7 @@ class PSO:
                                     traffic += self.baseStationSet[l].traffic
                             if traffic <= wMax[X[k] - 1]:
                                 old = self.fitness(X, M)
-                                Mtmp = M[:]
+                                Mtmp = deepcopy(M)
                                 Mtmp[j][k] = 1
                                 new = self.fitness(X, Mtmp)
                                 if (new - old) > maxProfit:
@@ -236,7 +365,7 @@ class PSO:
                     if maxChoice != -1:
                         M[j][maxChoice] = X[maxChoice]
                     else:
-                        if self.baseStationSet[j].traffic > 9765625:
+                        if self.baseStationSet[j].traffic > largeTraffic:
                             M[j][j] = 2
                             X[j] = 2
                         else:
@@ -247,14 +376,14 @@ class PSO:
                         maxProfit = -1
                         maxChoice = -1
                         for k in range(self.varNum):
-                            if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) < self.r[X[k] - 1]:
+                            if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) + self.r[X[k] - 1] * 0.3 < self.r[X[k] - 1]:
                                 traffic = self.baseStationSet[j].traffic
                                 for l in range(self.varNum):
                                     if M[l][k] == 1:
                                         traffic += self.baseStationSet[l].traffic
                                 if traffic <= wMax[X[k] - 1]:
                                     old = self.fitness(X, M)
-                                    Mtmp = M[:]
+                                    Mtmp = deepcopy(M)
                                     Mtmp[j][k] = 1
                                     new = self.fitness(X, Mtmp)
                                     if (new - old) > maxProfit:
@@ -263,7 +392,7 @@ class PSO:
                         if maxChoice != -1:
                             M[j][maxChoice] = X[maxChoice]
                         else:
-                            if self.baseStationSet[j].traffic > 9765625:
+                            if self.baseStationSet[j].traffic > largeTraffic:
                                 M[j][j] = 2
                                 X[j] = 2
                             else:
@@ -343,7 +472,6 @@ if __name__ == '__main__':
 
     r1 = 5                                                       # 单位为100m
     r2 = 2
-    totalNum = 5951
     popSize = 2
     NGEN = 100
     baseStationSet = []
@@ -358,7 +486,10 @@ if __name__ == '__main__':
             x = int((int(block) - 1) / 120) + 0.5
             y = ((int(block) - 1) % 120) + 0.5
             # users = tmp[2]
-            users = 38
+            if block == 973:
+                users = 38
+            else:
+                users = 40
             baseStationSet.append(baseStation(x, y, traffic, users))
     pso = PSO(baseStationSet, NGEN, popSize, r1, r2)
     pso.main()

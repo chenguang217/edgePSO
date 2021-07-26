@@ -80,6 +80,7 @@ class PSO:
                     self.pfits.append(fit)
                     if fit > temp:
                         self.g_best = deepcopy(X)
+                        self.gM = deepcopy(M)
                         self.gfit = fit
                         temp = fit
                     break
@@ -94,7 +95,7 @@ class PSO:
                 for j in range(len(X)):
                     if M[j][i] == 1:
                         traffic += self.baseStationSet[j].traffic
-                PowerSum += traffic / wMax * 198 + 297
+                PowerSum += traffic / wMax * 800 + 1200
         # print('result', count)
         return 1 / PowerSum
 
@@ -173,18 +174,8 @@ class PSO:
                 print('update')
             if fit > self.gfit:
                 self.g_best = deepcopy(X)
+                self.gM = deepcopy(M)
                 self.gfit = fit
-
-    def xDistance(self, X1, X2):
-        distance = [0] * self.varNum
-        count = 0
-        for i in range(self.varNum):
-            if X1[i] != X2[i]:
-                count += 1
-                distance[i] = 1
-            else:
-                print(X1[i], X2[i])
-        print(count)
 
     def main(self):
         popobj = []
@@ -195,8 +186,12 @@ class PSO:
             print('############ Generation {} ############'.format(str(gen + 1)))
             if self.gfit > self.ng_best:
                 self.ng_best = self.gfit
+                self.best = self.g_best
+                self.bestM = self.gM
             # print('最好的位置：{}'.format(self.ng_best))
             print('最大的函数值：{}'.format(self.ng_best))
+        np.savetxt('X.txt', self.best, fmt='%d')
+        np.savetxt('M.txt', self.bestM, fmt='%d')
         print("---- End of (successful) Searching ----")
 
         plt.figure()
@@ -211,24 +206,7 @@ class baseStation:
     def __init__(self, x, y, traffic):
         self.x = x
         self.y = y
-        if traffic == 0:
-            self.traffic = 5 ** 5.0175
-        elif traffic == 1:
-            self.traffic = 5 ** 5.767
-        elif traffic == 2:
-            self.traffic = 5 ** 6.5165
-        elif traffic == 3:
-            self.traffic = 5 ** 7.266
-        elif traffic == 4:
-            self.traffic = 5 ** 8.0155
-        elif traffic == 5:
-            self.traffic = 5 ** 8.765
-        elif traffic == 6:
-            self.traffic = 5 ** 9.5145
-        elif traffic == 7:
-            self.traffic = 5 ** 10.264
-        elif traffic == 8:
-            self.traffic = 5 ** 11.014
+        self.traffic = 5 ** (traffic + 6)
     def distanceCal(self, target):
         xDiv = abs(self.x - target.x)
         yDiv = abs(self.y - target.y)
@@ -237,9 +215,9 @@ class baseStation:
 
 if __name__ == '__main__':
     r = 5                                                       # 单位为100m
-    totalNum = 5951
+    totalNum = 5533
     popSize = 2
-    NGEN = 100
+    NGEN = 400
     baseStationSet = []
     with open('baseStations.csv', 'r') as file:
         while True:
