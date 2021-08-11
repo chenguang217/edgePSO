@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 np.set_printoptions(threshold=np.inf)
-wMax = 90000000
+wMax = 220000000
+powerNorm = 242488
 
 def randomIntList(start, stop, length):
     start, stop = (int(start), int(stop)) if start <= stop else (int(stop), int(start))
@@ -27,7 +28,7 @@ def sort_key(old_dict, reverse=False):
 
 
 class PSO:
-    def __init__(self, baseStationSet, NGEN, popSize, r):
+    def __init__(self, baseStationSet, NGEN, popSize, r, alpha):
         # 初始化
         self.NGEN = NGEN                        # 迭代的代数
         self.popSize = popSize                  # 种群大小
@@ -41,6 +42,7 @@ class PSO:
         self.trafficSum = 0
         self.fits = []
         self.pfits = []
+        self.alpha = alpha
         temp = -1
         for base in baseStationSet:
             self.trafficSum += base.traffic
@@ -60,12 +62,7 @@ class PSO:
                     queue = {}
                     for i in range(self.varNum):
                         if i != k and i in unAssign:
-                            # q = r / baseStationSet[k].distanceCal(baseStationSet[i]) + baseStationSet[i].traffic / self.trafficSum
-                            try:
-                                q = (r / baseStationSet[k].distanceCal(baseStationSet[i])) + (baseStationSet[i].traffic / self.trafficSum)
-                            except:
-                                print(r / baseStationSet[k].distanceCal(baseStationSet[i]))
-                                exit()
+                            q = (r / baseStationSet[k].distanceCal(baseStationSet[i])) + (baseStationSet[i].traffic / self.trafficSum)
                             queue[q] = i
                     queue = sort_key(queue, True)
                     traffic = baseStationSet[k].traffic
@@ -82,7 +79,7 @@ class PSO:
                     fit = self.fitness(X, M)
                     print(fit)
                     print(np.count_nonzero(X == 1))
-                    print(np.count_nonzero(X == 2))
+                    # print(np.count_nonzero(X == 2))
                     # exit()
                     self.fits.append(fit)
                     self.pfits.append(fit)
@@ -92,33 +89,36 @@ class PSO:
                         self.gfit = fit
                         temp = fit
                     break
+        # print(self.fits)
+        print(max(self.fits) - min(self.fits))
 
     def fitness(self, X, M):
         PowerSum = 0
-        count = 0
+        delay = 0
         for i in range(len(X)):
+            # ---------------统计4G---------------
             if X[i] == 1:
-                count += 1
                 traffic = 0
                 for j in range(len(X)):
                     if M[j][i] == 1:
                         traffic += self.baseStationSet[j].traffic
+                        delay += self.baseStationSet[j].distanceCal(self.baseStationSet[i])
                 PowerSum += traffic / wMax * 800 + 1200
-        # print('result', count)
-        return 1 / PowerSum
+        delay = delay / self.varNum
+        totalCost = self.alpha * PowerSum / powerNorm + (1 - self.alpha) * delay / self.r * 2
+        # totalCost = 0.0005 * PowerSum + 2 * delay
+        # print(self.alpha * PowerSum / powerNorm, (1 - self.alpha) * delay / self.r * 2)
+
+        return 1 / totalCost
 
     def update_operator(self):
         for i in range(self.popSize):
-            # 计算速度
+            # ---------------计算速度---------------
             p1 = self.fits[i] / (self.fits[i] + self.pfits[i] + self.gfit)
             p2 = self.pfits[i] / (self.fits[i] + self.pfits[i] + self.gfit)
             # p3 = self.gfit / (self.fits[i] + self.pfits[i] + self.gfit)
-            # print(p1,p2,p3)
             tmp1 = [b for b in self.popV[i]]
             tmp2 = [(int(self.popX[i][j]) ^ int(self.p_best[i][j])) for j in range(self.varNum)]
-            # for j in range(self.varNum):
-            #     print(self.popX[i][j], self.p_best[i][j])
-            #     print(int(self.popX[i][j]) ^ int(self.p_best[i][j]))
             tmp3 = [(int(self.popX[i][j]) ^ int(self.g_best[j])) for j in range(self.varNum)]
             Vnew = [0] * self.varNum
             for j in range(self.varNum):
@@ -132,8 +132,7 @@ class PSO:
             self.popV[i] = Vnew
             X = self.popX[i]
             M = self.popM[i]
-            # print(Vnew)
-            # 应用速度，并去除非法分配
+            # ---------------应用速度，并去除非法分配---------------
             for j in range(self.varNum):
                 if Vnew[j] == 1:
                     if X[j] == 1:
@@ -144,23 +143,42 @@ class PSO:
                             M[j][k] = 0
                         M[j][j] = 1
                     X[j] = int(X[j]) ^ 1
-            # print(X)
-            # 分配未分配的基站
+            # ---------------分配未分配的基站---------------
+            noAllo = 0
             for j in range(self.varNum):
                 if 1 not in M[j]:
-                    for k in range(self.varNum):
-                        if X[k] == 1:
-                            if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) < self.r:
-                                traffic = self.baseStationSet[j].traffic
-                                for l in range(self.varNum):
-                                    if M[l][k] == 1:
-                                        traffic += self.baseStationSet[l].traffic
-                                if traffic <= wMax:
-                                    M[j][k] = 1
-                                    break
-                    else:
-                        M[j][j] = 1
-                        X[j] = 1
+                    noAllo += 1
+            if noAllo != 0:
+                tmpCost = self.fitness(X, M)
+                avgCost = (self.pfits[i] - 1 / tmpCost) / noAllo
+                if avgCost< 0:
+                    avgCost = 2
+                # print(avgCost)
+                for j in range(self.varNum):
+                    if 1 not in M[j]:
+                        bestChoice = -1
+                        bestCost = 2
+                        for k in range(self.varNum):
+                            if X[k] == 1:
+                                if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) <= self.r:
+                                    traffic = self.baseStationSet[j].traffic
+                                    for l in range(self.varNum):
+                                        if M[l][k] == 1:
+                                            traffic += self.baseStationSet[l].traffic
+                                    if traffic <= wMax:
+                                        appendCost = self.alpha * (self.baseStationSet[j].traffic * 800 / wMax) / powerNorm + (1 - self.alpha) * (self.baseStationSet[j].distanceCal(self.baseStationSet[k]) / self.varNum * self.r / 2)
+                                        if bestCost > appendCost:
+                                            bestCost = appendCost
+                                            bestChoice = k
+                                        if appendCost < avgCost:
+                                            M[j][k] = 1
+                                            break
+                        else:
+                            if bestChoice != -1:
+                                M[j][bestChoice] = 1
+                            else:
+                                M[j][j] = 1
+                                X[j] = 1
             for j in range(self.varNum):
                 if np.count_nonzero(M[j] == 1) != 1:
                     print(j)
@@ -174,12 +192,10 @@ class PSO:
             fit = self.fitness(X, M)
             self.fits[i] = fit
             print(fit)
-            # print(self.popX[i])
-            # self.xDistance(self.g_best, X)
+            print(np.count_nonzero(X == 1))
             if fit > self.pfits[i]:
                 self.p_best[i] = deepcopy(X)
                 self.pfits[i] = fit
-                print('update')
             if fit > self.gfit:
                 self.g_best = deepcopy(X)
                 self.gM = deepcopy(M)
@@ -224,11 +240,10 @@ class baseStation:
 
 if __name__ == '__main__':
     r = 5                                                       # 单位为100m
-    totalNum = 5533
-    popSize = 2
+    popSize = 40
     NGEN = 3
     baseStationSet = []
-    with open('trainSetForPso.csv', 'r') as file:
+    with open('baseStations.csv', 'r') as file:
         while True:
             line = file.readline().strip()
             if len(line) == 0:
@@ -239,5 +254,11 @@ if __name__ == '__main__':
             x = int((int(block) - 1) / 120) + 0.5
             y = ((int(block) - 1) % 120) + 0.5
             baseStationSet.append(baseStation(x, y, traffic))
-    pso = PSO(baseStationSet, NGEN, popSize, r)
-    pso.main()
+    trafficSum = 0
+    for base in baseStationSet:
+        trafficSum += base.traffic
+    # print(trafficSum / wMax * 2000)
+    # for i in range(11):
+    #     pso = PSO(baseStationSet, NGEN, popSize, r, 0.1 * i)
+    pso = PSO(baseStationSet, NGEN, popSize, r, 0.7)
+    # pso.main()

@@ -4,33 +4,16 @@ import math
 
 totalNum = 6443
 userLimit = 39
-largeTraffic = 48828125
+largeTraffic = 74559107
 r = [5, 2]
-wMax = [440000000, 2200000000]
+wMax = [90000000, 2200000000]
 
 class baseStation:
     def __init__(self, x, y, traffic, users):
         self.x = x
         self.y = y
         self.users = users
-        if traffic == 0:
-            self.traffic = 5 ** 5.0175
-        elif traffic == 1:
-            self.traffic = 5 ** 5.767
-        elif traffic == 2:
-            self.traffic = 5 ** 6.5165
-        elif traffic == 3:
-            self.traffic = 5 ** 7.266
-        elif traffic == 4:
-            self.traffic = 5 ** 8.0155
-        elif traffic == 5:
-            self.traffic = 5 ** 8.765
-        elif traffic == 6:
-            self.traffic = 5 ** 9.5145
-        elif traffic == 7:
-            self.traffic = 5 ** 10.264
-        elif traffic == 8:
-            self.traffic = 5 ** 11.014
+        self.traffic = 3 ** (traffic + 9.5)
     def distanceCal(self, target):
         xDiv = abs(self.x - target.x)
         yDiv = abs(self.y - target.y)
@@ -76,8 +59,8 @@ def fitness(X, M, baseStationSet):
 
 
 if __name__ == "__main__":
-    X = np.loadtxt('X.txt')
-    M = np.loadtxt('M.txt')
+    X = np.loadtxt('X-1.txt')
+    M = np.loadtxt('M-1.txt')
     # for i in range(len(M)):
     #     print(np.count_nonzero(M[i] == 1))
     baseStationSet = []

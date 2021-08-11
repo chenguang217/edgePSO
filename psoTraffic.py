@@ -12,10 +12,10 @@ import numpy as np
 
 np.set_printoptions(threshold=np.inf)
 wMax = [220000000, 2200000000]
-totalNum = 5533
 userLimit = 41
 largeTraffic = 0.6
-largeTraffic2 = 48828125
+largeTraffic2 = 74559107
+powerNorm = 242488
 
 def randomIntList(start, stop, length):
     start, stop = (int(start), int(stop)) if start <= stop else (int(stop), int(start))
@@ -34,7 +34,7 @@ def sort_key(old_dict, reverse=False):
 
 
 class PSO:
-    def __init__(self, baseStationSet, NGEN, popSize, r1, r2):
+    def __init__(self, baseStationSet, NGEN, popSize, r1, r2, alpha):
         # 初始化
         self.NGEN = NGEN                            # 迭代的代数
         self.popSize = popSize                      # 种群大小
@@ -48,6 +48,7 @@ class PSO:
         self.trafficSum = 0                         # 流量总和，q计算中需要
         self.fits = []                              # 适应度
         self.pfits = []                             # 局部最优适应度
+        self.alpha = alpha                          # 平衡参数
         temp = -1
         # ---------------计算流量总和---------------
         for base in baseStationSet:
@@ -81,11 +82,19 @@ class PSO:
                     traffic = 0
                     count = 0
                     for q, i in queue.items():
-                        traffic += baseStationSet[i].traffic
-                        count += 1
+                        # traffic += baseStationSet[i].traffic
+                        # count += 1
+                        if baseStationSet[i].users >= userLimit and (baseStationSet[k].distanceCal(baseStationSet[i]) + self.r[1] * 0.3) < self.r[1]:
+                            traffic += baseStationSet[i].traffic
+                            count += 1
+                        elif baseStationSet[i].users < userLimit and baseStationSet[k].distanceCal(baseStationSet[i]) < self.r[1]:
+                            traffic += baseStationSet[i].traffic
+                            count += 1
                         # -------------前10个节点超过4G上限则部署5G-------------
                         if count == 10:
+                            # print(k, traffic - trafficTmp)
                             if traffic > wMax[0]:
+                                # print(k, traffic - trafficTmp)
                                 allocation = 2
                                 X[k] = 2
                                 M[k][k] = 2
@@ -94,6 +103,17 @@ class PSO:
                                 X[k] = 1
                                 M[k][k] = 1
                             break
+                    else:
+                        # print(k, traffic - trafficTmp)
+                        if traffic > wMax[0]:
+                            # print(k, traffic - trafficTmp)
+                            allocation = 2
+                            X[k] = 2
+                            M[k][k] = 2
+                        else:
+                            allocation = 1
+                            X[k] = 1
+                            M[k][k] = 1
                     traffic = 0
                     # ---------------实际分配过程---------------
                     for q, i in queue.items():
@@ -157,8 +177,9 @@ class PSO:
                             delay += self.baseStationSet[j].distanceCal(self.baseStationSet[i]) + self.r[0] * 0.3
                 # PowerSum += traffic / wMax[1] * 800 + 1200
                 PowerSum += traffic / wMax[1] * 1400 + 2100
-        delay = delay / totalNum
-        totalCost = 0.0005 * PowerSum + 2 * delay
+        delay = delay / self.varNum
+        totalCost = self.alpha * PowerSum / powerNorm + (1 - self.alpha) * delay / self.r[0] * 2
+        # print(0.5 * PowerSum / 121244, 0.5 * delay / self.r[0] * 2)
             
         return 1 / totalCost
 
@@ -212,139 +233,157 @@ class PSO:
                         X[j] = 2
                     else:
                         X[j] = int(abs(X[j] - Vnew[j]))
-            # ---------------分配未分配的基站---------------
+            # ---------------计算可接受的平均消耗---------------
+            noAllo = 0
             for j in range(self.varNum):
-                if 1 not in M[j] and 2 not in M[j] and self.baseStationSet[j].users < userLimit:
-                    minProfit = 1
-                    minChoice = -1
-                    for k in range(self.varNum):
-                        if k == j:
-                            continue
-                        if X[k] == 0:
-                            continue
-                        if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) < self.r[int(X[k] - 1)]:
-                            traffic = self.baseStationSet[j].traffic
-                            for l in range(self.varNum):
-                                if M[l][k] == X[k]:
-                                    if self.baseStationSet[l].users < userLimit:
-                                        traffic += self.baseStationSet[l].traffic
-                                    else:
-                                        traffic += self.baseStationSet[l].traffic + largeTraffic * self.baseStationSet[l].traffic
-                            if traffic <= wMax[int(X[k] - 1)]:
-                                M[j][k] = X[k]
-                                break
-                                # if minProfit > (1 - traffic / wMax[int(X[k] - 1)]):
-                                #     minProfit = 1 - traffic / wMax[int(X[k] - 1)]
-                                #     minChoice = k
-                    else:
-                    # if minChoice == -1:
-                        # print('new edge')
-                        if self.baseStationSet[j].traffic >= largeTraffic2:
-                            M[j][j] = 2
-                            X[j] = 2
+                if 1 not in M[j]:
+                    noAllo += 1
+            if noAllo != 0:
+                tmpCost = self.fitness(X, M)
+                avgCost = (self.pfits[i] - 1 / tmpCost) / noAllo
+                if avgCost< 0:
+                    avgCost = 2
+                # ---------------分配未分配的基站---------------
+                for j in range(self.varNum):
+                    if 1 not in M[j] and 2 not in M[j] and self.baseStationSet[j].users < userLimit:
+                        bestChoice = -1
+                        bestCost = 2
+                        for k in range(self.varNum):
+                            if k == j:
+                                continue
+                            if X[k] == 0:
+                                continue
+                            if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) < self.r[int(X[k] - 1)]:
+                                traffic = self.baseStationSet[j].traffic
+                                for l in range(self.varNum):
+                                    if M[l][k] == X[k]:
+                                        if self.baseStationSet[l].users < userLimit:
+                                            traffic += self.baseStationSet[l].traffic
+                                        else:
+                                            traffic += self.baseStationSet[l].traffic + largeTraffic * self.baseStationSet[l].traffic
+                                if traffic <= wMax[int(X[k] - 1)]:
+                                    w1 = [800, 1400]
+                                    appendCost = self.alpha * (self.baseStationSet[j].traffic * w1[int(X[k] - 1)] / wMax[int(X[k] - 1)]) / powerNorm + (1 - self.alpha) * (self.baseStationSet[j].distanceCal(self.baseStationSet[k]) / self.varNum * self.r[int(X[k] - 1)] / 2)
+                                    if bestCost > appendCost:
+                                        bestCost = appendCost
+                                        bestChoice = k
+                                    if appendCost < avgCost:
+                                        M[j][k] = X[k]
+                                        break
                         else:
-                            M[j][j] = 1
-                            X[j] = 1
-                    # else:
-                    #     M[j][minChoice] = X[minChoice]
-                elif 1 not in M[j] and 2 not in M[j] and self.baseStationSet[j].users >= userLimit:
-                    minProfit = 1
-                    minChoice = -1
-                    for k in range(self.varNum):
-                        if k == j:
-                            continue
-                        if X[k] == 0:
-                            continue
-                        if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) + self.r[k] * 0.3 < self.r[int(X[k] - 1)]:
-                            traffic = self.baseStationSet[j].traffic + largeTraffic * self.baseStationSet[j].traffic
-                            for l in range(self.varNum):
-                                if M[l][k] == X[k]:
-                                    if self.baseStationSet[l].users < userLimit:
-                                        traffic += self.baseStationSet[l].traffic
-                                    else:
-                                        traffic += self.baseStationSet[l].traffic + largeTraffic * self.baseStationSet[l].traffic
-                            if traffic <= wMax[int(X[k] - 1)]:
-                                M[j][k] = X[k]
-                                break
-                                # if minProfit > (1 - traffic / wMax[int(X[k] - 1)]):
-                                #     minProfit = 1 - traffic / wMax[int(X[k] - 1)]
-                                #     minChoice = k
-                    else:
-                    # if minChoice == -1:
-                        # print('new edge')
-                        if self.baseStationSet[j].traffic >= largeTraffic2:
-                            M[j][j] = 2
-                            X[j] = 2
+                            if bestChoice != -1:
+                                M[j][bestChoice] = X[bestChoice]
+                            else:
+                                if self.baseStationSet[j].traffic >= largeTraffic2:
+                                    M[j][j] = 2
+                                    X[j] = 2
+                                else:
+                                    M[j][j] = 1
+                                    X[j] = 1
+                        # else:
+                        #     M[j][minChoice] = X[minChoice]
+                    elif 1 not in M[j] and 2 not in M[j] and self.baseStationSet[j].users >= userLimit:
+                        bestChoice = -1
+                        bestCost = 2
+                        for k in range(self.varNum):
+                            if k == j:
+                                continue
+                            if X[k] == 0:
+                                continue
+                            if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) + self.r[int(X[k] - 1)] * 0.3 < self.r[int(X[k] - 1)]:
+                                traffic = self.baseStationSet[j].traffic + largeTraffic * self.baseStationSet[j].traffic
+                                for l in range(self.varNum):
+                                    if M[l][k] == X[k]:
+                                        if self.baseStationSet[l].users < userLimit:
+                                            traffic += self.baseStationSet[l].traffic
+                                        else:
+                                            traffic += self.baseStationSet[l].traffic + largeTraffic * self.baseStationSet[l].traffic
+                                if traffic <= wMax[int(X[k] - 1)]:
+                                    w1 = [800, 1400]
+                                    appendCost = self.alpha * ((1 + largeTraffic) * self.baseStationSet[j].traffic * w1[int(X[k] - 1)] / wMax[int(X[k] - 1)]) / powerNorm + (1 - self.alpha) * ((self.baseStationSet[j].distanceCal(self.baseStationSet[k]) + self.r[int(X[k] - 1)] * 0.3) / self.varNum * self.r[int(X[k] - 1)] / 2)
+                                    if bestCost > appendCost:
+                                        bestCost = appendCost
+                                        bestChoice = k
+                                    if appendCost < avgCost:
+                                        M[j][k] = X[k]
+                                        break
+                                    M[j][k] = X[k]
+                                    break
                         else:
-                            M[j][j] = 1
-                            X[j] = 1
-                    # else:
-                    #     M[j][minChoice] = X[minChoice]
+                            if bestChoice != -1:
+                                M[j][bestChoice] = X[bestChoice]
+                            else:
+                                if self.baseStationSet[j].traffic >= largeTraffic2:
+                                    M[j][j] = 2
+                                    X[j] = 2
+                                else:
+                                    M[j][j] = 1
+                                    X[j] = 1
 
-                
-                # if 1 not in M[j] and 2 not in M[j] and self.baseStationSet[j].users < userLimit:
-                #     maxProfit = -1
-                #     maxChoice = -1
-                #     for k in range(self.varNum):
-                #         if k == j:
-                #             continue
-                #         if X[k] == 0:
-                #             continue
-                #         if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) < self.r[int(X[k] - 1)]:
-                #             traffic = self.baseStationSet[j].traffic
-                #             for l in range(self.varNum):
-                #                 if M[l][k] == 1:
-                #                     traffic += self.baseStationSet[l].traffic
-                #             if traffic <= wMax[int(X[k] - 1)]:
-                #                 old = self.fitness(X, M)
-                #                 Mtmp = deepcopy(M)
-                #                 Mtmp[j][k] = 1
-                #                 new = self.fitness(X, Mtmp)
-                #                 if (new - old) > maxProfit:
-                #                     maxProfit = new - old
-                #                     maxChoice = k
-                #     print(maxChoice)
-                #     if maxChoice != -1:
-                #         M[j][maxChoice] = X[maxChoice]
-                #     else:
-                #         print('new edge')
-                #         if self.baseStationSet[j].traffic > largeTraffic2:
-                #             M[j][j] = 2
-                #             X[j] = 2
-                #         else:
-                #             M[j][j] = 1
-                #             X[j] = 1
-                # elif 1 not in M[j] and 2 not in M[j] and self.baseStationSet[j].users >= userLimit:
-                #     maxProfit = -1
-                #     maxChoice = -1
-                #     for k in range(self.varNum):
-                #         if k == j:
-                #             continue
-                #         if X[k] == 0:
-                #             continue
-                #         if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) + self.r[0] * 0.3 < self.r[int(X[k] - 1)]:
-                #             traffic = self.baseStationSet[j].traffic + largeTraffic * self.baseStationSet[j].traffic
-                #             for l in range(self.varNum):
-                #                 if M[l][k] == 1:
-                #                     traffic += self.baseStationSet[l].traffic
-                #             if traffic <= wMax[int(X[k] - 1)]:
-                #                 old = self.fitness(X, M)
-                #                 Mtmp = deepcopy(M)
-                #                 Mtmp[j][k] = 1
-                #                 new = self.fitness(X, Mtmp)
-                #                 if (new - old) > maxProfit:
-                #                     maxProfit = new - old
-                #                     maxChoice = k
-                #     if maxChoice != -1:
-                #         M[j][maxChoice] = X[maxChoice]
-                #     else:
-                #         print('new edge')
-                #         if self.baseStationSet[j].traffic > largeTraffic2:
-                #             M[j][j] = 2
-                #             X[j] = 2
-                #         else:
-                #             M[j][j] = 1
-                #             X[j] = 1
+                    
+                    # if 1 not in M[j] and 2 not in M[j] and self.baseStationSet[j].users < userLimit:
+                    #     maxProfit = -1
+                    #     maxChoice = -1
+                    #     for k in range(self.varNum):
+                    #         if k == j:
+                    #             continue
+                    #         if X[k] == 0:
+                    #             continue
+                    #         if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) < self.r[int(X[k] - 1)]:
+                    #             traffic = self.baseStationSet[j].traffic
+                    #             for l in range(self.varNum):
+                    #                 if M[l][k] == 1:
+                    #                     traffic += self.baseStationSet[l].traffic
+                    #             if traffic <= wMax[int(X[k] - 1)]:
+                    #                 old = self.fitness(X, M)
+                    #                 Mtmp = deepcopy(M)
+                    #                 Mtmp[j][k] = 1
+                    #                 new = self.fitness(X, Mtmp)
+                    #                 if (new - old) > maxProfit:
+                    #                     maxProfit = new - old
+                    #                     maxChoice = k
+                    #     print(maxChoice)
+                    #     if maxChoice != -1:
+                    #         M[j][maxChoice] = X[maxChoice]
+                    #     else:
+                    #         print('new edge')
+                    #         if self.baseStationSet[j].traffic > largeTraffic2:
+                    #             M[j][j] = 2
+                    #             X[j] = 2
+                    #         else:
+                    #             M[j][j] = 1
+                    #             X[j] = 1
+                    # elif 1 not in M[j] and 2 not in M[j] and self.baseStationSet[j].users >= userLimit:
+                    #     maxProfit = -1
+                    #     maxChoice = -1
+                    #     for k in range(self.varNum):
+                    #         if k == j:
+                    #             continue
+                    #         if X[k] == 0:
+                    #             continue
+                    #         if self.baseStationSet[k].distanceCal(self.baseStationSet[j]) + self.r[0] * 0.3 < self.r[int(X[k] - 1)]:
+                    #             traffic = self.baseStationSet[j].traffic + largeTraffic * self.baseStationSet[j].traffic
+                    #             for l in range(self.varNum):
+                    #                 if M[l][k] == 1:
+                    #                     traffic += self.baseStationSet[l].traffic
+                    #             if traffic <= wMax[int(X[k] - 1)]:
+                    #                 old = self.fitness(X, M)
+                    #                 Mtmp = deepcopy(M)
+                    #                 Mtmp[j][k] = 1
+                    #                 new = self.fitness(X, Mtmp)
+                    #                 if (new - old) > maxProfit:
+                    #                     maxProfit = new - old
+                    #                     maxChoice = k
+                    #     if maxChoice != -1:
+                    #         M[j][maxChoice] = X[maxChoice]
+                    #     else:
+                    #         print('new edge')
+                    #         if self.baseStationSet[j].traffic > largeTraffic2:
+                    #             M[j][j] = 2
+                    #             X[j] = 2
+                    #         else:
+                    #             M[j][j] = 1
+                    #             X[j] = 1
             # ---------------更新lbest gbest---------------
             self.popX[i] = X
             self.popM[i] = M
@@ -377,6 +416,8 @@ class PSO:
             print('最大的函数值：{}'.format(self.ng_best))
         np.savetxt('X-1.txt', self.best, fmt='%d')
         np.savetxt('M-1.txt', self.bestM, fmt='%d')
+        print(np.count_nonzero(self.best == 1))
+        print(np.count_nonzero(self.best == 2))
         print("---- End of (successful) Searching ----")
 
         plt.figure()
@@ -393,7 +434,7 @@ class baseStation:
         self.x = x
         self.y = y
         self.users = users
-        self.traffic = 5 ** (traffic + 6)
+        self.traffic = 3 ** (traffic + 9.5)
         
     def distanceCal(self, target):
         xDiv = abs(self.x - target.x)
@@ -403,10 +444,9 @@ class baseStation:
 
 
 if __name__ == "__main__":
-    r1 = 5                                                       # 单位为100m
-    # r2 = 5
+    r1 = 5                                                       # 4G覆盖范围单位为100m
     r2 = 2
-    popSize = 2
+    popSize = 40
     NGEN = 100
     baseStationSet = []
     with open('baseStations.csv', 'r') as file:
@@ -419,11 +459,11 @@ if __name__ == "__main__":
             traffic = int(tmp[1])
             x = int((int(block) - 1) / 120) + 0.5
             y = ((int(block) - 1) % 120) + 0.5
-            # users = tmp[2]
-            if block == 973:
-                users = 38
-            else:
-                users = 38
+            users = int(tmp[3])
+            # if block == 973:
+            #     users = 38
+            # else:
+            #     users = 38
             baseStationSet.append(baseStation(x, y, traffic, users))
-    pso = PSO(baseStationSet, NGEN, popSize, r1, r2)
+    pso = PSO(baseStationSet, NGEN, popSize, r1, r2, 0.7)
     pso.main()
