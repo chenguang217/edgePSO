@@ -1,0 +1,127 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Aug  7 16:55:55 2021
+
+@author: 王家殷
+"""
+
+import collections
+import math
+import random
+import time
+from copy import deepcopy
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+np.set_printoptions(threshold=np.inf)
+wMax = 440000000
+
+def randomIntList(start, stop, length):
+    start, stop = (int(start), int(stop)) if start <= stop else (int(stop), int(start))
+    length = int(abs(length)) if length else 0
+    random_list = []
+    for i in range(length):
+        random_list.append(random.randint(start, stop))
+    return random_list
+
+
+def sort_key(old_dict, reverse=False):
+    keys = sorted(old_dict.keys(), reverse=reverse)
+    new_dict = collections.OrderedDict()
+    for key in keys:
+        new_dict[key] = old_dict[key]
+    return new_dict
+
+
+def fitness(baseStationSet, X, M):
+    PowerSum = 0
+    count = 0
+    for i in range(len(X)):
+        if X[i] == 1:
+            count += 1
+            traffic = 0
+            for j in range(len(X)):
+                if M[j][i] == 1:
+                    traffic += baseStationSet[j].traffic
+            PowerSum += traffic / wMax * 800 + 1200
+    # print('result', count)
+    return 1 / PowerSum
+
+
+def randomplacer(baseStationSet, r):
+    # temp = -1
+    trafficSum = 0
+    varNum = len(baseStationSet)
+    for base in baseStationSet:
+        trafficSum += base.traffic
+    
+    M = np.zeros((varNum, varNum))
+    X = np.zeros(varNum)
+    while True:
+        unAssign = []
+        for base in range(len(M)):
+            if 1 not in M[base]:
+                unAssign.append(base)
+        if len(unAssign) != 0:
+            k = random.choice(unAssign)
+            M[k][k] = 1
+            X[k] = 1
+            queue = {}
+            for i in range(varNum):
+                if i != k and i in unAssign:
+                    q = r / baseStationSet[k].distanceCal(baseStationSet[i]) + baseStationSet[i].traffic / trafficSum
+                    queue[q] = i
+            queue = sort_key(queue, True)
+            traffic = baseStationSet[k].traffic
+            for q, i in queue.items():
+                if baseStationSet[k].distanceCal(baseStationSet[i]) < r:
+                    traffic += baseStationSet[i].traffic
+                    if traffic <= wMax:
+                        M[i][k] = 1
+        else:
+            return M, X
+                    
+        
+        
+class baseStation:
+    def __init__(self, x, y, traffic):
+        self.x = x
+        self.y = y
+        self.traffic = 5 ** (traffic + 6)
+    def distanceCal(self, target):
+        xDiv = abs(self.x - target.x)
+        yDiv = abs(self.y - target.y)
+        distance = (math.sqrt(xDiv ** 2 + yDiv ** 2)) / 2
+        return distance
+
+
+if __name__ == '__main__':
+    r = 5
+    # servernum_up = 25
+    # servernum_down = 15
+    totalNum = 5533
+    baseStationSet = []
+    max_fit = 0
+    with open('baseStations.csv', 'r') as file:
+        while True:
+            line = file.readline().strip()
+            if len(line) == 0:
+                break
+            tmp = line.split(',')
+            block = int(tmp[0])
+            traffic = int(tmp[1])
+            x = int((int(block) - 1) / 120) + 0.5
+            y = ((int(block) - 1) % 120) + 0.5
+            baseStationSet.append(baseStation(x, y, traffic))
+        for i in range(10):
+            M, X = randomplacer(baseStationSet, r)
+            fit = fitness(baseStationSet, X, M)
+            if max_fit < fit:
+                M_final = M
+                X_final = X
+                max_fit = fit
+        np.savetxt('X_random.txt', X_final, fmt='%d')
+        np.savetxt('M_random.txt', M_final, fmt='%d')
+        # print(max_fit)
+    
