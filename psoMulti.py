@@ -296,8 +296,17 @@ class PSO:
             p2 = self.pfits[i] / (self.fits[i] + self.pfits[i] + self.gfit)
             # p3 = self.gfit / (self.fits[i] + self.pfits[i] + self.gfit)
             tmp1 = [b for b in self.popV[i]]
-            tmp2 = [(int(self.popX[i][j]) ^ int(self.p_best[i][j])) for j in range(self.varNum)]
-            tmp3 = [(int(self.popX[i][j]) ^ int(self.g_best[j])) for j in range(self.varNum)]
+            tmp2 = []
+            tmp3 = []
+            for j in range(self.varNum):
+                if int(self.popX[i][j]) == 1 and int(self.p_best[i][j]) == 2:
+                    tmp2.append(2)
+                else:
+                    tmp2.append(abs(int(self.popX[i][j]) - int(self.p_best[i][j])))
+                if int(self.popX[i][j]) == 1 and int(self.g_best[j]) == 2:
+                    tmp3.append(2)
+                else:
+                    tmp3.append(abs(int(self.popX[i][j]) - int(self.g_best[j])))
             Vnew = [0] * self.varNum
             for j in range(self.varNum):
                 rand = random.random()
